@@ -9,20 +9,20 @@ async function loadAssetGallery() {
   if (!galleryRoot) return;
 
   try {
-    const manifest = await fetch('assets/manifest.json').then((response) => response.json());
-    const assetFiles = Array.isArray(manifest.files) ? manifest.files : [];
+    const assetEntries = await loadAssetEntries();
 
-    if (assetFiles.length === 0) {
+    if (assetEntries.length === 0) {
       renderPreparation(galleryRoot);
       return;
     }
 
     const mediaEntries = await Promise.all(
-      assetFiles.map(async (fileName) => {
-        const src = `assets/${fileName}`;
-        const isVideo = /\.(mp4|mov|webm)$/i.test(fileName);
-        const orientation = await resolveOrientation(src, isVideo);
-        const poster = resolvePoster(fileName, assetFiles);
+      assetEntries.map(async (entry) => {
+        const src = normalizeAssetSrc(entry.src);
+        const fileName = entry.fileName || entry.name || src.split('/').pop();
+        const isVideo = /\.(mp4|mov|webm)$/i.test(src);
+        const orientation = await resolveOrientationForEntry(entry, src, isVideo);
+        const poster = resolvePoster(entry, assetEntries);
 
         return {
           fileName,
@@ -66,6 +66,107 @@ async function loadAssetGallery() {
   }
 }
 
+async function loadAssetEntries() {
+  const manifestResponse = await fetch('assets/manifest.json').catch(() => null);
+
+  if (manifestResponse && manifestResponse.ok) {
+    const manifest = await manifestResponse.json().catch(() => null);
+    const normalizedManifestEntries = normalizeManifestEntries(manifest);
+
+    if (normalizedManifestEntries.length > 0) {
+      return normalizedManifestEntries;
+    }
+  }
+
+  const listingHtml = await fetch('assets/').then((response) => response.text());
+  const matches = [...listingHtml.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+  const assetFiles = matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif|mp4|mov|webm)$/i.test(value));
+
+  return assetFiles.map((value) => ({ src: `assets/${value}` }));
+}
+
+function normalizeManifestEntries(manifest) {
+  if (!manifest) return [];
+
+  const sourceFiles = Array.isArray(manifest) ? manifest : Array.isArray(manifest.files) ? manifest.files : [];
+
+  return sourceFiles
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return {
+          src: entry,
+          fileName: entry.split('/').pop(),
+        };
+      }
+
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      if (!entry.src && !entry.fileName && !entry.name) {
+        return null;
+      }
+
+      const source = entry.src || entry.fileName || entry.name;
+      return {
+        src: source,
+        fileName: entry.fileName || entry.name || source.split('/').pop(),
+        orientation: typeof entry.orientation === 'string' ? entry.orientation.toLowerCase() : '',
+        poster: typeof entry.poster === 'string' ? entry.poster : '',
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeAssetSrc(src) {
+  if (!src) return '';
+
+  if (src.startsWith('assets/')) {
+    return src;
+  }
+
+  if (src.startsWith('/')) {
+    return src.replace(/^\/+/, '');
+  }
+
+  return `assets/${src}`;
+}
+
+async function resolveOrientationForEntry(entry, src, isVideo) {
+  if (entry.orientation === 'portrait' || entry.orientation === 'landscape') {
+    return entry.orientation;
+  }
+
+  const pathHint = resolveOrientationFromPath(src);
+  if (pathHint) {
+    return pathHint;
+  }
+
+  if (!isVideo) {
+    return 'landscape';
+  }
+
+  return resolveOrientation(src, isVideo);
+}
+
+function resolveOrientationFromPath(src) {
+  const normalizedPath = src.toLowerCase();
+
+  if (/(^|\/)(portrait|vertical|縦)(\/|$)/.test(normalizedPath)) {
+    return 'portrait';
+  }
+
+  if (/(^|\/)(landscape|horizontal|横)(\/|$)/.test(normalizedPath)) {
+    return 'landscape';
+  }
+
+  if (normalizedPath.includes('/video/')) {
+    return 'landscape';
+  }
+
+  return '';
+}
+
 function renderPreparation(galleryRoot) {
   galleryRoot.innerHTML = `
     <section class="gallery-group is-active" data-group="photo">
@@ -106,14 +207,20 @@ async function resolveOrientation(src, isVideo) {
   });
 }
 
-function resolvePoster(fileName, assetFiles) {
+function resolvePoster(entry, assetEntries) {
+  if (entry.poster) {
+    return normalizeAssetSrc(entry.poster);
+  }
+
+  const fileName = entry.fileName || entry.name || entry.src.split('/').pop();
   const baseName = fileName.replace(/\.[^.]+$/i, '');
-  const posterMatch = assetFiles.find((candidate) => {
-    const candidateBase = candidate.replace(/\.[^.]+$/i, '');
-    return candidateBase === baseName && /\.(jpg|jpeg|png|webp|gif)$/i.test(candidate);
+  const posterMatch = assetEntries.find((candidate) => {
+    const candidateName = candidate.fileName || candidate.name || candidate.src.split('/').pop();
+    const candidateBase = candidateName.replace(/\.[^.]+$/i, '');
+    return candidateBase === baseName && /\.(jpg|jpeg|png|webp|gif)$/i.test(candidateName);
   });
 
-  return posterMatch ? `assets/${posterMatch}` : '';
+  return posterMatch ? normalizeAssetSrc(posterMatch.src) : '';
 }
 
 function renderGroupedRows(galleryRoot, grouped) {
