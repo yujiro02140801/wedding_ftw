@@ -9,9 +9,8 @@ async function loadAssetGallery() {
   if (!galleryRoot) return;
 
   try {
-    const listingHtml = await fetch('assets/').then((response) => response.text());
-    const matches = [...listingHtml.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
-    const assetFiles = matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif|mp4|mov|webm)$/i.test(value));
+    const manifest = await fetch('assets/manifest.json').then((response) => response.json());
+    const assetFiles = Array.isArray(manifest.files) ? manifest.files : [];
 
     if (assetFiles.length === 0) {
       renderPreparation(galleryRoot);
