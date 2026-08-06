@@ -17,12 +17,10 @@ async function loadAssetGallery() {
     }
 
     const photoEntries = await Promise.all(
-      assetEntries
-        .filter((entry) => !entry.isVideo)
-        .map(async (entry) => {
-          const src = normalizeAssetSrc(entry.src);
-          const fileName = entry.fileName || entry.name || src.split('/').pop();
-          const orientation = await resolveOrientationForEntry(entry, src);
+      assetEntries.map(async (entry) => {
+        const src = normalizeAssetSrc(entry.src);
+        const fileName = entry.fileName || entry.name || src.split('/').pop();
+        const orientation = await resolveOrientationForEntry(entry, src);
 
           return {
             fileName,
@@ -125,7 +123,6 @@ function normalizeManifestEntries(manifest) {
         const normalizedSource = entry.startsWith('assets/') ? entry : `assets/${entry}`;
         const fileName = entry.split('/').pop();
         const normalizedPath = entry.toLowerCase();
-        const isVideo = /\.(mp4|mov|webm|m4v|ogg|ogv)$/i.test(entry);
         const orientation = normalizedPath.includes('/portrait/') || normalizedPath.includes('/portrait')
           ? 'portrait'
           : normalizedPath.includes('/landscape/') || normalizedPath.includes('/landscape')
@@ -136,7 +133,6 @@ function normalizeManifestEntries(manifest) {
           src: normalizedSource,
           fileName,
           orientation,
-          isVideo,
         };
       }
 
@@ -151,7 +147,6 @@ function normalizeManifestEntries(manifest) {
       const source = entry.src || entry.fileName || entry.name;
       const normalizedSource = source.startsWith('assets/') ? source : `assets/${source}`;
       const normalizedPath = String(source).toLowerCase();
-      const isVideo = /\.(mp4|mov|webm|m4v|ogg|ogv)$/i.test(source);
       const orientation = normalizedPath.includes('/portrait/') || normalizedPath.includes('/portrait')
         ? 'portrait'
         : normalizedPath.includes('/landscape/') || normalizedPath.includes('/landscape')
@@ -163,7 +158,6 @@ function normalizeManifestEntries(manifest) {
         fileName: entry.fileName || entry.name || source.split('/').pop(),
         orientation,
         poster: typeof entry.poster === 'string' ? entry.poster : '',
-        isVideo,
       };
     })
     .filter(Boolean);
