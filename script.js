@@ -16,39 +16,29 @@ async function loadAssetGallery() {
       return;
     }
 
-    const mediaEntries = await Promise.all(
-      assetEntries.map(async (entry) => {
-        const src = normalizeAssetSrc(entry.src);
-        const fileName = entry.fileName || entry.name || src.split('/').pop();
-        const isVideo = /\.(mp4|mov|webm)$/i.test(src);
-        const orientation = await resolveOrientationForEntry(entry, src, isVideo);
-        const poster = resolvePoster(entry, assetEntries);
+    const photoEntries = await Promise.all(
+      assetEntries
+        .filter((entry) => !entry.isVideo)
+        .map(async (entry) => {
+          const src = normalizeAssetSrc(entry.src);
+          const fileName = entry.fileName || entry.name || src.split('/').pop();
+          const orientation = await resolveOrientationForEntry(entry, src);
 
-        return {
-          fileName,
-          src,
-          isVideo,
-          orientation,
-          poster,
-        };
-      })
+          return {
+            fileName,
+            src,
+            orientation,
+          };
+        })
     );
 
     const grouped = {
       portraitPhoto: [],
       landscapePhoto: [],
-      portraitVideo: [],
-      landscapeVideo: [],
     };
 
-    mediaEntries.forEach((entry) => {
-      if (entry.isVideo) {
-        if (entry.orientation === 'portrait') {
-          grouped.portraitVideo.push(entry);
-        } else {
-          grouped.landscapeVideo.push(entry);
-        }
-      } else if (entry.orientation === 'portrait') {
+    photoEntries.forEach((entry) => {
+      if (entry.orientation === 'portrait') {
         grouped.portraitPhoto.push(entry);
       } else {
         grouped.landscapePhoto.push(entry);
@@ -56,17 +46,20 @@ async function loadAssetGallery() {
     });
 
     renderGroupedRows(galleryRoot, grouped);
-    setupGalleryTabs();
     setupInfiniteCarousels();
     setupMouseDrag();
   } catch (error) {
     renderPreparation(galleryRoot);
-    setupGalleryTabs();
     setupMouseDrag();
   }
 }
 
 async function loadAssetEntries() {
+  const folderEntries = await loadEntriesFromFolders();
+  if (folderEntries.length > 0) {
+    return folderEntries;
+  }
+
   const manifestResponse = await fetch('assets/manifest.json').catch(() => null);
 
   if (manifestResponse && manifestResponse.ok) {
@@ -79,10 +72,46 @@ async function loadAssetEntries() {
   }
 
   const listingHtml = await fetch('assets/').then((response) => response.text());
-  const matches = [...listingHtml.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
-  const assetFiles = matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif|mp4|mov|webm)$/i.test(value));
+  const matches = [...listingHtml.matchAll(/href=["']([^"']+)["']/gi)].map((match) => match[1]);
+  const assetFiles = matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif)$/i.test(value));
 
   return assetFiles.map((value) => ({ src: `assets/${value}` }));
+}
+
+async function loadEntriesFromFolders() {
+  const folders = [
+    { key: 'portrait', orientation: 'portrait' },
+    { key: 'landscape', orientation: 'landscape' },
+  ];
+
+  const entries = [];
+
+  for (const folder of folders) {
+    const folderPath = `assets/${folder.key}`;
+    const fileNames = await loadFolderFileNames(folderPath);
+
+    fileNames.forEach((fileName) => {
+      entries.push({
+        src: `${folderPath}/${fileName}`,
+        fileName,
+        orientation: folder.orientation,
+      });
+    });
+  }
+
+  return entries;
+}
+
+async function loadFolderFileNames(folderPath) {
+  const response = await fetch(`${folderPath}/`).catch(() => null);
+
+  if (!response || !response.ok) {
+    return [];
+  }
+
+  const listingHtml = await response.text();
+  const matches = [...listingHtml.matchAll(/href=["']([^"']+)["']/gi)].map((match) => match[1]);
+  return matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif)$/i.test(value));
 }
 
 function normalizeManifestEntries(manifest) {
@@ -93,9 +122,21 @@ function normalizeManifestEntries(manifest) {
   return sourceFiles
     .map((entry) => {
       if (typeof entry === 'string') {
+        const normalizedSource = entry.startsWith('assets/') ? entry : `assets/${entry}`;
+        const fileName = entry.split('/').pop();
+        const normalizedPath = entry.toLowerCase();
+        const isVideo = /\.(mp4|mov|webm|m4v|ogg|ogv)$/i.test(entry);
+        const orientation = normalizedPath.includes('/portrait/') || normalizedPath.includes('/portrait')
+          ? 'portrait'
+          : normalizedPath.includes('/landscape/') || normalizedPath.includes('/landscape')
+            ? 'landscape'
+            : '';
+
         return {
-          src: entry,
-          fileName: entry.split('/').pop(),
+          src: normalizedSource,
+          fileName,
+          orientation,
+          isVideo,
         };
       }
 
@@ -108,11 +149,21 @@ function normalizeManifestEntries(manifest) {
       }
 
       const source = entry.src || entry.fileName || entry.name;
+      const normalizedSource = source.startsWith('assets/') ? source : `assets/${source}`;
+      const normalizedPath = String(source).toLowerCase();
+      const isVideo = /\.(mp4|mov|webm|m4v|ogg|ogv)$/i.test(source);
+      const orientation = normalizedPath.includes('/portrait/') || normalizedPath.includes('/portrait')
+        ? 'portrait'
+        : normalizedPath.includes('/landscape/') || normalizedPath.includes('/landscape')
+          ? 'landscape'
+          : '';
+
       return {
-        src: source,
+        src: normalizedSource,
         fileName: entry.fileName || entry.name || source.split('/').pop(),
-        orientation: typeof entry.orientation === 'string' ? entry.orientation.toLowerCase() : '',
+        orientation,
         poster: typeof entry.poster === 'string' ? entry.poster : '',
+        isVideo,
       };
     })
     .filter(Boolean);
@@ -132,7 +183,7 @@ function normalizeAssetSrc(src) {
   return `assets/${src}`;
 }
 
-async function resolveOrientationForEntry(entry, src, isVideo) {
+async function resolveOrientationForEntry(entry, src) {
   if (entry.orientation === 'portrait' || entry.orientation === 'landscape') {
     return entry.orientation;
   }
@@ -142,11 +193,12 @@ async function resolveOrientationForEntry(entry, src, isVideo) {
     return pathHint;
   }
 
-  if (!isVideo) {
-    return 'landscape';
-  }
-
-  return resolveOrientation(src, isVideo);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(image.naturalWidth >= image.naturalHeight ? 'landscape' : 'portrait');
+    image.onerror = () => resolve('landscape');
+    image.src = src;
+  });
 }
 
 function resolveOrientationFromPath(src) {
@@ -160,104 +212,38 @@ function resolveOrientationFromPath(src) {
     return 'landscape';
   }
 
-  if (normalizedPath.includes('/video/')) {
-    return 'landscape';
-  }
-
   return '';
 }
 
 function renderPreparation(galleryRoot) {
   galleryRoot.innerHTML = `
-    <section class="gallery-group is-active" data-group="photo">
+    <section class="gallery-group">
       <div class="gallery-row infinite-carousel" role="region" aria-label="Preparation row">
         <div class="gallery-message">準備中です。<br />もうしばらくお待ちください。</div>
-      </div>
-    </section>
-    <section class="gallery-group" data-group="video">
-      <div class="gallery-row infinite-carousel" role="region" aria-label="Video preparation row">
-        <div class="gallery-message">映像準備中です。<br />もうしばらくお待ちください。</div>
       </div>
     </section>
   `;
   setupInfiniteCarousels();
 }
 
-async function resolveOrientation(src, isVideo) {
-  if (isVideo) {
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-    video.playsInline = true;
-
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = resolve;
-      video.onerror = reject;
-      video.src = src;
-    });
-
-    return video.videoWidth >= video.videoHeight ? 'landscape' : 'portrait';
-  }
-
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => resolve(image.naturalWidth >= image.naturalHeight ? 'landscape' : 'portrait');
-    image.onerror = () => resolve('landscape');
-    image.src = src;
-  });
-}
-
-function resolvePoster(entry, assetEntries) {
-  if (entry.poster) {
-    return normalizeAssetSrc(entry.poster);
-  }
-
-  const fileName = entry.fileName || entry.name || entry.src.split('/').pop();
-  const baseName = fileName.replace(/\.[^.]+$/i, '');
-  const posterMatch = assetEntries.find((candidate) => {
-    const candidateName = candidate.fileName || candidate.name || candidate.src.split('/').pop();
-    const candidateBase = candidateName.replace(/\.[^.]+$/i, '');
-    return candidateBase === baseName && /\.(jpg|jpeg|png|webp|gif)$/i.test(candidateName);
-  });
-
-  return posterMatch ? normalizeAssetSrc(posterMatch.src) : '';
-}
-
 function renderGroupedRows(galleryRoot, grouped) {
   galleryRoot.innerHTML = '';
 
   const photoSection = document.createElement('section');
-  photoSection.className = 'gallery-group is-active';
-  photoSection.dataset.group = 'photo';
-
-  const videoSection = document.createElement('section');
-  videoSection.className = 'gallery-group';
-  videoSection.dataset.group = 'video';
+  photoSection.className = 'gallery-group';
 
   const photoCategories = [
     { key: 'portraitPhoto', label: '縦写真' },
     { key: 'landscapePhoto', label: '横写真' },
   ];
 
-  const videoCategories = [
-    { key: 'portraitVideo', label: '縦動画' },
-    { key: 'landscapeVideo', label: '横動画' },
-  ];
-
   renderCategoryRows(photoSection, photoCategories, grouped);
-  renderCategoryRows(videoSection, videoCategories, grouped);
 
   if (!photoSection.querySelector('.gallery-row')) {
     photoSection.innerHTML = '<div class="gallery-row infinite-carousel" role="region" aria-label="Photo preparation row"><div class="gallery-message">準備中です。<br />もうしばらくお待ちください。</div></div>';
   }
 
-  if (!videoSection.querySelector('.gallery-row')) {
-    videoSection.innerHTML = '<div class="gallery-row infinite-carousel" role="region" aria-label="Video preparation row"><div class="gallery-message">映像準備中です。<br />もうしばらくお待ちください。</div></div>';
-  }
-
   galleryRoot.appendChild(photoSection);
-  galleryRoot.appendChild(videoSection);
-  setupGalleryTabs();
 }
 
 function renderCategoryRows(container, categories, grouped) {
@@ -277,18 +263,8 @@ function renderCategoryRows(container, categories, grouped) {
       rowItems.forEach((item) => {
         const media = document.createElement('div');
         media.className = `gallery-item ${item.orientation}`;
-        media.setAttribute('data-kind', item.isVideo ? 'video' : 'photo');
 
-        if (item.isVideo) {
-          const posterAttribute = item.poster ? ` poster="${item.poster}"` : '';
-          media.innerHTML = `
-            <video controls preload="metadata"${posterAttribute}>
-              <source src="${item.src}" type="video/mp4" />
-            </video>
-          `;
-        } else {
-          media.innerHTML = `<img src="${item.src}" alt="${item.fileName}" loading="lazy" />`;
-        }
+        media.innerHTML = `<img src="${item.src}" alt="${item.fileName}" loading="lazy" />`;
 
         row.appendChild(media);
       });
@@ -296,30 +272,6 @@ function renderCategoryRows(container, categories, grouped) {
       container.appendChild(row);
     });
   });
-}
-
-function setupGalleryTabs() {
-  const tabs = document.querySelectorAll('.gallery-tab');
-  const groups = document.querySelectorAll('.gallery-group');
-
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const mode = tab.dataset.mode;
-
-      tabs.forEach((button) => button.classList.toggle('is-active', button === tab));
-      groups.forEach((group) => {
-        group.classList.toggle('is-active', group.dataset.group === mode);
-      });
-    });
-  });
-}
-
-function chunk(items, size) {
-  const result = [];
-  for (let index = 0; index < items.length; index += size) {
-    result.push(items.slice(index, index + size));
-  }
-  return result;
 }
 
 function setupInfiniteCarousels() {
