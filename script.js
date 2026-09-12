@@ -32,6 +32,7 @@ async function loadAssetGallery() {
     }
 
     renderVerticalGallery(galleryRoot, photoEntries);
+    setupLightbox();
   } catch (error) {
     renderPreparation(galleryRoot);
   }
@@ -131,6 +132,48 @@ function renderVerticalGallery(galleryRoot, photoEntries) {
 
     figure.appendChild(image);
     galleryRoot.appendChild(figure);
+  });
+}
+
+function setupLightbox() {
+  const lightbox = document.createElement('div');
+  const lightboxImage = document.createElement('img');
+  const closeButton = document.createElement('button');
+
+  lightbox.className = 'lightbox';
+  lightbox.hidden = true;
+  lightbox.setAttribute('role', 'dialog');
+  lightbox.setAttribute('aria-modal', 'true');
+  lightboxImage.alt = '';
+  closeButton.className = 'lightbox-close';
+  closeButton.type = 'button';
+  closeButton.setAttribute('aria-label', '閉じる');
+  closeButton.textContent = '×';
+
+  lightbox.append(lightboxImage, closeButton);
+  document.body.appendChild(lightbox);
+
+  document.querySelectorAll('.gallery-item img').forEach((image) => {
+    image.addEventListener('click', () => {
+      lightboxImage.src = image.currentSrc || image.src;
+      lightboxImage.alt = image.alt;
+      lightbox.hidden = false;
+      document.body.style.overflow = 'hidden';
+    });
+  });
+
+  const closeLightbox = () => {
+    lightbox.hidden = true;
+    document.body.style.overflow = '';
+    lightboxImage.removeAttribute('src');
+  };
+
+  closeButton.addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', (event) => {
+    if (event.target === lightbox) closeLightbox();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !lightbox.hidden) closeLightbox();
   });
 }
 

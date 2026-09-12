@@ -25,29 +25,63 @@ body {
 .gallery-root {
   display: flex;
   flex-direction: column;
-  scroll-snap-type: y proximity;
 }
 
 .gallery-item {
   position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 12px 0;
-  background: #050505;
-  scroll-snap-align: start;
+  margin: 0;
+  padding: 0;
+  background: #000000;
   user-select: none;
 }
 
 .gallery-item img {
   display: block;
-  width: min(100vw - 18px, 980px);
-  max-height: 92vh;
+  width: 100%;
+  height: auto;
+  cursor: zoom-in;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.96);
+  cursor: zoom-out;
+}
+
+.lightbox[hidden] {
+  display: none;
+}
+
+.lightbox img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
-  border-radius: 18px;
-  background: #111111;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .gallery-message {
@@ -63,12 +97,7 @@ body {
 }
 
 @media (min-width: 768px) {
-  .gallery-item {
-    padding: 18px 0;
-  }
-
   .gallery-item img {
-    width: min(100vw - 32px, 1100px);
-    border-radius: 22px;
+    width: min(100%, 1100px);
   }
 }
