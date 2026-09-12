@@ -39,6 +39,12 @@ async function loadAssetGallery() {
 }
 
 async function loadAssetEntries() {
+  const numberedEntries = loadNumberedAssetEntries();
+
+  if (numberedEntries.length > 0) {
+    return numberedEntries;
+  }
+
   const manifestResponse = await fetch('assets/manifest.json').catch(() => null);
 
   if (manifestResponse && manifestResponse.ok) {
@@ -66,6 +72,29 @@ async function loadAssetEntries() {
   });
 
   return assetFiles.map((value) => ({ src: `assets/${value}` }));
+}
+
+function loadNumberedAssetEntries() {
+  const entries = [
+    '0001.jpg',
+    '0001_1.jpg',
+    '0001_3.jpg',
+    '0001_4.jpg',
+    '0001_5.JPG',
+  ].map((fileName) => ({
+    src: `assets/${fileName}`,
+    fileName,
+  }));
+
+  for (let number = 2; number <= 2629; number += 1) {
+    const fileName = `${String(number).padStart(4, '0')}.JPG`;
+    entries.push({
+      src: `assets/${fileName}`,
+      fileName,
+    });
+  }
+
+  return entries;
 }
 
 function normalizeManifestEntries(manifest) {
