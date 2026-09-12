@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-  setupFadeIn();
   loadAssetGallery();
 });
 
@@ -11,53 +10,34 @@ async function loadAssetGallery() {
   try {
     const assetEntries = await loadAssetEntries();
 
-    if (assetEntries.length === 0) {
+    if (!assetEntries.length) {
       renderPreparation(galleryRoot);
       return;
     }
 
-    const photoEntries = await Promise.all(
-      assetEntries.map(async (entry) => {
-        const src = normalizeAssetSrc(entry.src);
+    const photoEntries = assetEntries
+      .map((entry) => {
+        const src = normalizeAssetSrc(entry.src || entry.fileName || entry.name || '');
         const fileName = entry.fileName || entry.name || src.split('/').pop();
-        const orientation = await resolveOrientationForEntry(entry, src);
 
-          return {
-            fileName,
-            src,
-            orientation,
-          };
-        })
-    );
+        if (!src) return null;
 
-    const grouped = {
-      portraitPhoto: [],
-      landscapePhoto: [],
-    };
+        return { src, fileName };
+      })
+      .filter(Boolean);
 
-    photoEntries.forEach((entry) => {
-      if (entry.orientation === 'portrait') {
-        grouped.portraitPhoto.push(entry);
-      } else {
-        grouped.landscapePhoto.push(entry);
-      }
-    });
+    if (!photoEntries.length) {
+      renderPreparation(galleryRoot);
+      return;
+    }
 
-    renderGroupedRows(galleryRoot, grouped);
-    setupInfiniteCarousels();
-    setupMouseDrag();
+    renderVerticalGallery(galleryRoot, photoEntries);
   } catch (error) {
     renderPreparation(galleryRoot);
-    setupMouseDrag();
   }
 }
 
 async function loadAssetEntries() {
-  const folderEntries = await loadEntriesFromFolders();
-  if (folderEntries.length > 0) {
-    return folderEntries;
-  }
-
   const manifestResponse = await fetch('assets/manifest.json').catch(() => null);
 
   if (manifestResponse && manifestResponse.ok) {
@@ -69,47 +49,22 @@ async function loadAssetEntries() {
     }
   }
 
-  const listingHtml = await fetch('assets/').then((response) => response.text());
-  const matches = [...listingHtml.matchAll(/href=["']([^"']+)["']/gi)].map((match) => match[1]);
-  const assetFiles = matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif)$/i.test(value));
+  const directoryResponse = await fetch('assets/').catch(() => null);
 
-  return assetFiles.map((value) => ({ src: `assets/${value}` }));
-}
-
-async function loadEntriesFromFolders() {
-  const folders = [
-    { key: 'portrait', orientation: 'portrait' },
-    { key: 'landscape', orientation: 'landscape' },
-  ];
-
-  const entries = [];
-
-  for (const folder of folders) {
-    const folderPath = `assets/${folder.key}`;
-    const fileNames = await loadFolderFileNames(folderPath);
-
-    fileNames.forEach((fileName) => {
-      entries.push({
-        src: `${folderPath}/${fileName}`,
-        fileName,
-        orientation: folder.orientation,
-      });
-    });
-  }
-
-  return entries;
-}
-
-async function loadFolderFileNames(folderPath) {
-  const response = await fetch(`${folderPath}/`).catch(() => null);
-
-  if (!response || !response.ok) {
+  if (!directoryResponse || !directoryResponse.ok) {
     return [];
   }
 
-  const listingHtml = await response.text();
+  const listingHtml = await directoryResponse.text();
   const matches = [...listingHtml.matchAll(/href=["']([^"']+)["']/gi)].map((match) => match[1]);
-  return matches.filter((value) => !value.startsWith('../') && /\.(jpg|jpeg|png|webp|gif)$/i.test(value));
+  const assetFiles = matches.filter((value) => {
+    return !value.startsWith('../')
+      && !value.startsWith('manifest')
+      && !value.includes('placeholder')
+      && /\.(jpg|jpeg|png|webp|gif)$/i.test(value);
+  });
+
+  return assetFiles.map((value) => ({ src: `assets/${value}` }));
 }
 
 function normalizeManifestEntries(manifest) {
@@ -121,18 +76,9 @@ function normalizeManifestEntries(manifest) {
     .map((entry) => {
       if (typeof entry === 'string') {
         const normalizedSource = entry.startsWith('assets/') ? entry : `assets/${entry}`;
-        const fileName = entry.split('/').pop();
-        const normalizedPath = entry.toLowerCase();
-        const orientation = normalizedPath.includes('/portrait/') || normalizedPath.includes('/portrait')
-          ? 'portrait'
-          : normalizedPath.includes('/landscape/') || normalizedPath.includes('/landscape')
-            ? 'landscape'
-            : '';
-
         return {
           src: normalizedSource,
-          fileName,
-          orientation,
+          fileName: entry.split('/').pop(),
         };
       }
 
@@ -140,24 +86,17 @@ function normalizeManifestEntries(manifest) {
         return null;
       }
 
-      if (!entry.src && !entry.fileName && !entry.name) {
+      const source = entry.src || entry.fileName || entry.name;
+
+      if (!source) {
         return null;
       }
 
-      const source = entry.src || entry.fileName || entry.name;
       const normalizedSource = source.startsWith('assets/') ? source : `assets/${source}`;
-      const normalizedPath = String(source).toLowerCase();
-      const orientation = normalizedPath.includes('/portrait/') || normalizedPath.includes('/portrait')
-        ? 'portrait'
-        : normalizedPath.includes('/landscape/') || normalizedPath.includes('/landscape')
-          ? 'landscape'
-          : '';
 
       return {
         src: normalizedSource,
         fileName: entry.fileName || entry.name || source.split('/').pop(),
-        orientation,
-        poster: typeof entry.poster === 'string' ? entry.poster : '',
       };
     })
     .filter(Boolean);
@@ -166,193 +105,21 @@ function normalizeManifestEntries(manifest) {
 function normalizeAssetSrc(src) {
   if (!src) return '';
 
-  if (src.startsWith('assets/')) {
-    return src;
-  }
-
-  if (src.startsWith('/')) {
-    return src.replace(/^\/+/, '');
-  }
+  if (src.startsWith('assets/')) return src;
+  if (src.startsWith('/')) return src.replace(/^\/+/, '');
 
   return `assets/${src}`;
 }
 
-async function resolveOrientationForEntry(entry, src) {
-  if (entry.orientation === 'portrait' || entry.orientation === 'landscape') {
-    return entry.orientation;
-  }
-
-  const pathHint = resolveOrientationFromPath(src);
-  if (pathHint) {
-    return pathHint;
-  }
-
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => resolve(image.naturalWidth >= image.naturalHeight ? 'landscape' : 'portrait');
-    image.onerror = () => resolve('landscape');
-    image.src = src;
-  });
-}
-
-function resolveOrientationFromPath(src) {
-  const normalizedPath = src.toLowerCase();
-
-  if (/(^|\/)(portrait|vertical|縦)(\/|$)/.test(normalizedPath)) {
-    return 'portrait';
-  }
-
-  if (/(^|\/)(landscape|horizontal|横)(\/|$)/.test(normalizedPath)) {
-    return 'landscape';
-  }
-
-  return '';
+function renderVerticalGallery(galleryRoot, photoEntries) {
+  galleryRoot.innerHTML = photoEntries
+    .map((item, index) => {
+      const loading = index < 8 ? 'eager' : 'lazy';
+      return `<figure class="gallery-item"><img src="${item.src}" alt="${item.fileName}" loading="${loading}" /></figure>`;
+    })
+    .join('');
 }
 
 function renderPreparation(galleryRoot) {
-  galleryRoot.innerHTML = `
-    <section class="gallery-group">
-      <div class="gallery-row infinite-carousel" role="region" aria-label="Preparation row">
-        <div class="gallery-message">準備中です。<br />もうしばらくお待ちください。</div>
-      </div>
-    </section>
-  `;
-  setupInfiniteCarousels();
-}
-
-function renderGroupedRows(galleryRoot, grouped) {
-  galleryRoot.innerHTML = '';
-
-  const photoSection = document.createElement('section');
-  photoSection.className = 'gallery-group';
-
-  const photoCategories = [
-    { key: 'portraitPhoto', label: '縦写真' },
-    { key: 'landscapePhoto', label: '横写真' },
-  ];
-
-  renderCategoryRows(photoSection, photoCategories, grouped);
-
-  if (!photoSection.querySelector('.gallery-row')) {
-    photoSection.innerHTML = '<div class="gallery-row infinite-carousel" role="region" aria-label="Photo preparation row"><div class="gallery-message">準備中です。<br />もうしばらくお待ちください。</div></div>';
-  }
-
-  galleryRoot.appendChild(photoSection);
-}
-
-function renderCategoryRows(container, categories, grouped) {
-  categories.forEach(({ key, label }) => {
-    const items = grouped[key];
-
-    if (!items.length) return;
-
-    const rows = chunk(items, 20);
-
-    rows.forEach((rowItems, rowIndex) => {
-      const row = document.createElement('div');
-      row.className = 'gallery-row infinite-carousel';
-      row.setAttribute('role', 'region');
-      row.setAttribute('aria-label', `${label} ${rowIndex + 1}`);
-
-      rowItems.forEach((item) => {
-        const media = document.createElement('div');
-        media.className = `gallery-item ${item.orientation}`;
-
-        media.innerHTML = `<img src="${item.src}" alt="${item.fileName}" loading="lazy" />`;
-
-        row.appendChild(media);
-      });
-
-      container.appendChild(row);
-    });
-  });
-}
-
-function setupInfiniteCarousels() {
-  const carousels = document.querySelectorAll('.infinite-carousel');
-
-  carousels.forEach((carousel) => {
-    const originalItems = Array.from(carousel.children);
-
-    if (originalItems.length === 0) return;
-
-    requestAnimationFrame(() => {
-      carousel.scrollLeft = 0;
-    });
-  });
-}
-
-function setupFadeIn() {
-  const sections = document.querySelectorAll('.fade-section');
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
-        }
-      });
-    },
-    {
-      threshold: 0.1,
-    }
-  );
-
-  sections.forEach((section) => {
-    observer.observe(section);
-    if (section.getBoundingClientRect().top < window.innerHeight) {
-      section.classList.add('is-visible');
-    }
-  });
-}
-
-function setupMouseDrag() {
-  const carousels = document.querySelectorAll('.gallery-row');
-
-  carousels.forEach((carousel) => {
-    let isDown = false;
-    let startX = 0;
-    let scrollLeft = 0;
-    let moved = false;
-
-    carousel.addEventListener('mousedown', (event) => {
-      isDown = true;
-      moved = false;
-      startX = event.pageX - carousel.offsetLeft;
-      scrollLeft = carousel.scrollLeft;
-    });
-
-    carousel.addEventListener('mouseleave', () => {
-      isDown = false;
-    });
-
-    carousel.addEventListener('mouseup', () => {
-      isDown = false;
-    });
-
-    carousel.addEventListener('mousemove', (event) => {
-      if (!isDown) return;
-
-      event.preventDefault();
-      const x = event.pageX - carousel.offsetLeft;
-      const walk = (x - startX) * 1.2;
-
-      if (Math.abs(walk) > 5) {
-        moved = true;
-      }
-
-      carousel.scrollLeft = scrollLeft - walk;
-    });
-
-    carousel.addEventListener(
-      'click',
-      (event) => {
-        if (moved) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      },
-      true
-    );
-  });
+  galleryRoot.innerHTML = '<div class="gallery-message">写真を読み込んでいます。<br />しばらくお待ちください。</div>';
 }
