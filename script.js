@@ -112,12 +112,34 @@ function normalizeAssetSrc(src) {
 }
 
 function renderVerticalGallery(galleryRoot, photoEntries) {
-  galleryRoot.innerHTML = photoEntries
-    .map((item, index) => {
-      const loading = index < 8 ? 'eager' : 'lazy';
-      return `<figure class="gallery-item"><img src="${item.src}" alt="${item.fileName}" loading="${loading}" /></figure>`;
-    })
-    .join('');
+  galleryRoot.innerHTML = '';
+
+  photoEntries.forEach((item, index) => {
+    const figure = document.createElement('figure');
+    const image = document.createElement('img');
+    const loading = index < 8 ? 'eager' : 'lazy';
+
+    figure.className = 'gallery-item';
+    image.alt = item.fileName;
+    image.loading = loading;
+    image.src = resolveImageSrc(item.src);
+    image.addEventListener('error', () => {
+      if (!image.src.match(/\.jpg$/i)) return;
+
+      image.src = image.src.replace(/\.jpg$/i, (extension) => extension === '.jpg' ? '.JPG' : '.jpg');
+    }, { once: true });
+
+    figure.appendChild(image);
+    galleryRoot.appendChild(figure);
+  });
+}
+
+function resolveImageSrc(src) {
+  if (!window.location.hostname.endsWith('github.io')) {
+    return src;
+  }
+
+  return `https://media.githubusercontent.com/media/yujiro02140801/wedding_ftw/main/${src}`;
 }
 
 function renderPreparation(galleryRoot) {
