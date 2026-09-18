@@ -141,6 +141,11 @@ function getPhotoOrderKey(filePath) {
   }
 
   const cameraNumberMatch = fileName.match(/^(?:IMG[_-]?)?(\d+)/);
+  const parenthesizedNumberMatch = fileName.match(/^IMG\s*\(\s*(\d+)\s*\)/);
+
+  if (parenthesizedNumberMatch) {
+    return Number(parenthesizedNumberMatch[1]);
+  }
 
   if (cameraNumberMatch) {
     return Number(cameraNumberMatch[1]);
@@ -265,7 +270,8 @@ function resolveImageSrc(src) {
     return src;
   }
 
-  return `https://media.githubusercontent.com/media/yujiro02140801/wedding_ftw/main/${src}`;
+  const encodedPath = src.split('/').map((part) => encodeURIComponent(part)).join('/');
+  return `https://media.githubusercontent.com/media/yujiro02140801/wedding_ftw/main/${encodedPath}`;
 }
 
 function renderPreparation(galleryRoot) {
