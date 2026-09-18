@@ -82,7 +82,7 @@ async function loadDirectoryAssetEntries() {
   });
 
   return assetFiles
-    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true }))
+    .sort(comparePhotoNames)
     .map((value) => ({
       src: `assets/${value}`,
       fileName: value,
@@ -115,11 +115,37 @@ async function loadGithubAssetEntries() {
         && !entry.path.toLowerCase().includes('placeholder')
         && /\.(jpg|jpeg|png|webp|gif)$/i.test(entry.path);
     })
-    .sort((first, second) => first.path.localeCompare(second.path, undefined, { numeric: true }))
+    .sort((first, second) => comparePhotoNames(first.path, second.path))
     .map((entry) => ({
       src: entry.path,
       fileName: entry.path.split('/').pop(),
     }));
+}
+
+function comparePhotoNames(first, second) {
+  const firstName = typeof first === 'string' ? first : first.path;
+  const secondName = typeof second === 'string' ? second : second.path;
+  const firstKey = getPhotoOrderKey(firstName);
+  const secondKey = getPhotoOrderKey(secondName);
+
+  return firstKey - secondKey || firstName.localeCompare(secondName);
+}
+
+function getPhotoOrderKey(filePath) {
+  const fileName = filePath.split('/').pop().toUpperCase();
+  const timestampMatch = fileName.match(/^(\d{8}_\d{6})/);
+
+  if (timestampMatch) {
+    return Number(timestampMatch[1].replace(/\D/g, ''));
+  }
+
+  const cameraNumberMatch = fileName.match(/^(?:IMG[_-]?)?(\d+)/);
+
+  if (cameraNumberMatch) {
+    return Number(cameraNumberMatch[1]);
+  }
+
+  return Number.MAX_SAFE_INTEGER;
 }
 
 function normalizeManifestEntries(manifest) {
