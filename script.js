@@ -31,10 +31,15 @@ async function loadAssetGallery() {
       return;
     }
 
-    const orderedPhotoEntries = await sortPhotoEntriesByCaptureDate(photoEntries);
-
-    renderVerticalGallery(galleryRoot, orderedPhotoEntries);
+    renderVerticalGallery(galleryRoot, photoEntries);
     setupLightbox();
+
+    sortPhotoEntriesByCaptureDate(photoEntries)
+      .then((orderedPhotoEntries) => {
+        renderVerticalGallery(galleryRoot, orderedPhotoEntries);
+        setupLightbox();
+      })
+      .catch(() => {});
   } catch (error) {
     renderPreparation(galleryRoot);
   }
@@ -323,6 +328,8 @@ function renderVerticalGallery(galleryRoot, photoEntries) {
 }
 
 function setupLightbox() {
+  document.querySelector('.lightbox')?.remove();
+
   const lightbox = document.createElement('div');
   const lightboxImage = document.createElement('img');
   const closeButton = document.createElement('button');
