@@ -39,10 +39,16 @@ async function loadAssetGallery() {
 }
 
 async function loadAssetEntries() {
-  const numberedEntries = loadNumberedAssetEntries();
+  const githubEntries = await loadGithubAssetEntries();
 
-  if (numberedEntries.length > 0) {
-    return numberedEntries;
+  if (githubEntries.length > 0) {
+    return githubEntries;
+  }
+
+  const directoryEntries = await loadDirectoryAssetEntries();
+
+  if (directoryEntries.length > 0) {
+    return directoryEntries;
   }
 
   const manifestResponse = await fetch('assets/manifest.json').catch(() => null);
@@ -56,6 +62,10 @@ async function loadAssetEntries() {
     }
   }
 
+  return [];
+}
+
+async function loadDirectoryAssetEntries() {
   const directoryResponse = await fetch('assets/').catch(() => null);
 
   if (!directoryResponse || !directoryResponse.ok) {
@@ -71,30 +81,45 @@ async function loadAssetEntries() {
       && /\.(jpg|jpeg|png|webp|gif)$/i.test(value);
   });
 
-  return assetFiles.map((value) => ({ src: `assets/${value}` }));
+  return assetFiles
+    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true }))
+    .map((value) => ({
+      src: `assets/${value}`,
+      fileName: value,
+    }));
 }
 
-function loadNumberedAssetEntries() {
-  const entries = [
-    '0001.jpg',
-    '0001_1.jpg',
-    '0001_3.jpg',
-    '0001_4.jpg',
-    '0001_5.JPG',
-  ].map((fileName) => ({
-    src: `assets/${fileName}`,
-    fileName,
-  }));
-
-  for (let number = 2; number <= 2629; number += 1) {
-    const fileName = `${String(number).padStart(4, '0')}.JPG`;
-    entries.push({
-      src: `assets/${fileName}`,
-      fileName,
-    });
+async function loadGithubAssetEntries() {
+  if (!window.location.hostname.endsWith('github.io')) {
+    return [];
   }
 
-  return entries;
+  const response = await fetch('https://api.github.com/repos/yujiro02140801/wedding_ftw/git/trees/main?recursive=1')
+    .catch(() => null);
+
+  if (!response || !response.ok) {
+    return [];
+  }
+
+  const tree = await response.json().catch(() => null);
+
+  if (!tree || !Array.isArray(tree.tree)) {
+    return [];
+  }
+
+  return tree.tree
+    .filter((entry) => {
+      return entry.type === 'blob'
+        && entry.path.startsWith('assets/')
+        && entry.path.split('/').length === 2
+        && !entry.path.toLowerCase().includes('placeholder')
+        && /\.(jpg|jpeg|png|webp|gif)$/i.test(entry.path);
+    })
+    .sort((first, second) => first.path.localeCompare(second.path, undefined, { numeric: true }))
+    .map((entry) => ({
+      src: entry.path,
+      fileName: entry.path.split('/').pop(),
+    }));
 }
 
 function normalizeManifestEntries(manifest) {
