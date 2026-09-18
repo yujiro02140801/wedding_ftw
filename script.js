@@ -31,15 +31,9 @@ async function loadAssetGallery() {
       return;
     }
 
+    photoEntries.sort((first, second) => comparePhotoNames(first.fileName, second.fileName));
     renderVerticalGallery(galleryRoot, photoEntries);
     setupLightbox();
-
-    sortPhotoEntriesByCaptureDate(photoEntries)
-      .then((orderedPhotoEntries) => {
-        renderVerticalGallery(galleryRoot, orderedPhotoEntries);
-        setupLightbox();
-      })
-      .catch(() => {});
   } catch (error) {
     renderPreparation(galleryRoot);
   }
@@ -153,111 +147,6 @@ function getPhotoOrderKey(filePath) {
   }
 
   return Number.MAX_SAFE_INTEGER;
-}
-
-async function sortPhotoEntriesByCaptureDate(photoEntries) {
-  const datedEntries = [];
-  let nextIndex = 0;
-  const readNextEntry = async () => {
-    while (nextIndex < photoEntries.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const entry = photoEntries[index];
-      datedEntries[index] = {
-        entry,
-        index,
-        captureDate: await readCaptureDate(resolveImageSrc(entry.src)),
-      };
-    }
-  };
-
-  const workerCount = Math.min(8, photoEntries.length);
-  await Promise.all(Array.from({ length: workerCount }, readNextEntry));
-
-  return datedEntries
-    .sort((first, second) => {
-      if (first.captureDate && second.captureDate) {
-        return first.captureDate - second.captureDate || first.index - second.index;
-      }
-
-      if (first.captureDate) return -1;
-      if (second.captureDate) return 1;
-
-      return comparePhotoNames(first.entry.fileName, second.entry.fileName);
-    })
-    .map(({ entry }) => entry);
-}
-
-async function readCaptureDate(src) {
-  try {
-    const response = await fetch(src, { headers: { Range: 'bytes=0-131071' } });
-    if (!response.ok) return 0;
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    return parseJpegCaptureDate(bytes);
-  } catch (error) {
-    return 0;
-  }
-}
-
-function parseJpegCaptureDate(bytes) {
-  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return 0;
-
-  let offset = 2;
-  while (offset + 4 < bytes.length) {
-    if (bytes[offset] !== 0xff) {
-      offset += 1;
-      continue;
-    }
-
-    const marker = bytes[offset + 1];
-    if (marker === 0xda || marker === 0xd9) break;
-    const segmentLength = (bytes[offset + 2] << 8) | bytes[offset + 3];
-
-    if (marker === 0xe1 && bytes.slice(offset + 4, offset + 10).every((value, index) => value === [0x45, 0x78, 0x69, 0x66, 0, 0][index])) {
-      return parseExifDate(bytes, offset + 10);
-    }
-
-    offset += 2 + segmentLength;
-  }
-
-  return 0;
-}
-
-function parseExifDate(bytes, tiffStart) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const littleEndian = view.getUint16(tiffStart) === 0x4949;
-  const read16 = (position) => view.getUint16(position, littleEndian);
-  const read32 = (position) => view.getUint32(position, littleEndian);
-  const readIfdDate = (ifdOffset) => {
-    const entryCount = read16(tiffStart + ifdOffset);
-
-    for (let index = 0; index < entryCount; index += 1) {
-      const entry = tiffStart + ifdOffset + 2 + index * 12;
-      const tag = read16(entry);
-      const type = read16(entry + 2);
-      const count = read32(entry + 4);
-
-      if (tag === 0x9003 && type === 2 && count >= 19) {
-        const valueOffset = count <= 4 ? entry + 8 : tiffStart + read32(entry + 8);
-        const text = new TextDecoder().decode(bytes.slice(valueOffset, valueOffset + 19));
-        const match = text.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
-
-        if (match) {
-          return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}`).getTime();
-        }
-      }
-
-      if (tag === 0x8769 && type === 4) {
-        const nestedDate = readIfdDate(read32(entry + 8));
-        if (nestedDate) return nestedDate;
-      }
-    }
-
-    return 0;
-  };
-
-  return readIfdDate(read32(tiffStart + 4));
 }
 
 function normalizeManifestEntries(manifest) {
